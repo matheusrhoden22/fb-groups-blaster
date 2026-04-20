@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FB Groups Blaster</title>
+<style>
+  :root{
+    --bg:#0f172a; --panel:#1e293b; --panel-2:#334155;
+    --ink:#e2e8f0; --muted:#94a3b8; --line:#334155;
+    --accent:#e07a5f; --accent-2:#f2cc8f;
+    --ok:#10b981; --warn:#f59e0b; --err:#ef4444; --info:#60a5fa;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif}
+  body{min-height:100vh}
+  a{color:var(--accent-2)}
+  .wrap{max-width:1280px;margin:0 auto;padding:24px}
+  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;gap:12px;flex-wrap:wrap}
+  header h1{margin:0;font-size:22px;letter-spacing:.3px}
+  header h1 span{color:var(--accent)}
+  .phase{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:8px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block}
+  .dot.busy{background:var(--warn);box-shadow:0 0 0 4px rgba(245,158,11,.2);animation:pulse 1.4s infinite}
+  @keyframes pulse{50%{box-shadow:0 0 0 8px rgba(245,158,11,.05)}}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  @media (max-width:900px){.grid{grid-template-columns:1fr}}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px}
+  .card h2{margin:0 0 14px;font-size:14px;text-transform:uppercase;letter-spacing:1px;color:var(--accent-2)}
+  .card .sub{font-size:12px;color:var(--muted);margin-top:-8px;margin-bottom:14px}
+
+  label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px}
+  input[type=text],input[type=number],textarea,select{
+    width:100%;background:#0b1424;color:var(--ink);border:1px solid var(--line);
+    border-radius:8px;padding:10px 12px;font-size:14px;font-family:inherit;
+  }
+  textarea{min-height:120px;resize:vertical}
+  input:focus,textarea:focus{outline:none;border-color:var(--accent)}
+  .row{display:flex;gap:10px;margin-bottom:10px}
+  .row>*{flex:1}
+
+  button{
+    background:var(--accent);color:#0f172a;border:0;border-radius:8px;
+    padding:10px 18px;font-weight:600;cursor:pointer;font-size:14px;
+    transition:opacity .15s;
+  }
+  button:hover{opacity:.9}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  button.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+  button.ghost:hover{background:var(--panel-2)}
+  button.danger{background:var(--err);color:#fff}
+
+  .progress{background:#0b1424;height:8px;border-radius:4px;overflow:hidden;margin-top:8px}
+  .progress>div{background:var(--accent);height:100%;transition:width .4s}
+
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:12px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+  th{font-size:11px;text-transform:uppercase;color:var(--muted);letter-spacing:.5px;position:sticky;top:0;background:var(--panel)}
+  tr:hover{background:#0b1424}
+  td.name{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  .badge{display:inline-block;padding:3px 8px;border-radius:10px;font-size:11px;font-weight:600;letter-spacing:.3px}
+  .b-member{background:rgba(16,185,129,.15);color:var(--ok)}
+  .b-pending{background:rgba(245,158,11,.18);color:var(--warn)}
+  .b-not{background:rgba(148,163,184,.18);color:var(--muted)}
+  .b-error{background:rgba(239,68,68,.15);color:var(--err)}
+
+  .toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}
+  .toolbar .count{font-size:12px;color:var(--muted);margin-left:auto}
+
+  .events{background:#0b1424;border-radius:8px;padding:12px;font-family:Consolas,Menlo,monospace;
+          font-size:12px;max-height:260px;overflow:auto;border:1px solid var(--line)}
+  .events div{padding:2px 0;color:var(--muted)}
+  .events .ts{color:var(--accent-2);margin-right:6px}
+
+  .list-wrap{max-height:520px;overflow:auto;border:1px solid var(--line);border-radius:8px}
+  .warn-banner{background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.4);
+               color:#fca5a5;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:16px}
+  .warn-banner strong{color:#fecaca}
+
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+  .stat{background:#0b1424;border:1px solid var(--line);border-radius:8px;padding:10px;text-align:center}
+  .stat .v{font-size:22px;font-weight:700;color:var(--ink)}
+  .stat .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+
+  .link{font-size:11px;color:var(--muted);text-decoration:none}
+  .link:hover{color:var(--accent-2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1><span>FB</span> Groups Blaster</h1>
+  <div class="phase">
+    <span id="phaseDot" class="dot"></span>
+    <span id="phaseMsg">aguardando</span>
+  </div>
+</header>
+
+<div class="warn-banner">
+  <strong>Atenção:</strong> postar em muitos grupos seguidos com a mesma mensagem é padrão de spam.
+  O Facebook bloqueia/bane rápido. Comece pequeno (5-10 grupos), varie o texto, e use delays longos.
+</div>
+
+<div class="grid">
+
+  <!-- ESQUERDA: busca + lista -->
+  <div>
+    <div class="card">
+      <h2>1. Participar dos grupos</h2>
+      <div class="sub">Busca por palavra-chave, rola até atingir a quantidade e clica em "Participar" em cada card.</div>
+
+      <label>Palavra-chave</label>
+      <input id="query" type="text" placeholder="ex: contabilidade" value="contabilidade">
+
+      <div class="row" style="margin-top:10px">
+        <div>
+          <label>Quantos grupos entrar</label>
+          <input id="limit" type="number" value="20" min="1" max="500">
+        </div>
+        <div>
+          <label>Scrolls máx (segurança)</label>
+          <input id="scrolls" type="number" value="80" min="5" max="500">
+        </div>
+      </div>
+
+      <div class="row" style="align-items:flex-end">
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:0;color:var(--ink);text-transform:none;letter-spacing:0;font-size:13px">
+          <input id="clearBefore" type="checkbox" checked style="width:auto;flex:0">
+          limpar lista antes
+        </label>
+        <button id="btnJoin">Iniciar</button>
+      </div>
+
+      <div class="progress" style="margin-top:14px"><div id="joinBar" style="width:0%"></div></div>
+      <div style="font-size:12px;color:var(--muted);margin-top:6px" id="joinInfo">—</div>
+    </div>
+
+    <div class="card" style="margin-top:20px">
+      <h2>2. Grupos coletados</h2>
+
+      <div class="stats">
+        <div class="stat"><div class="v" id="sTotal">0</div><div class="l">Total</div></div>
+        <div class="stat"><div class="v" id="sMember" style="color:var(--ok)">0</div><div class="l">Sem aprovação</div></div>
+        <div class="stat"><div class="v" id="sPending" style="color:var(--warn)">0</div><div class="l">Pendentes</div></div>
+        <div class="stat"><div class="v" id="sError" style="color:var(--err)">0</div><div class="l">Erro</div></div>
+      </div>
+
+      <div class="toolbar">
+        <button class="ghost" onclick="selectBy('member')">Selecionar só aprovados</button>
+        <button class="ghost" onclick="selectBy('all')">Todos</button>
+        <button class="ghost" onclick="selectBy('none')">Limpar seleção</button>
+        <button class="ghost" onclick="recheck()">Rechecar status</button>
+        <span class="count" id="selCount">0 selecionados</span>
+      </div>
+
+      <div class="list-wrap">
+        <table id="tbl">
+          <thead>
+            <tr>
+              <th style="width:32px"></th>
+              <th>Nome</th>
+              <th>Membros</th>
+              <th>Status</th>
+              <th>Último post</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- DIREITA: postagem + log -->
+  <div>
+    <div class="card">
+      <h2>3. Postar mensagem</h2>
+      <div class="sub">Só vai postar nos grupos selecionados. <strong>Grupos verdes (sem aprovação)</strong> postam imediatamente. <strong>Amarelos (pendente)</strong> só depois que o admin aprovar — vão falhar se tentar agora.</div>
+
+      <label>Mensagem</label>
+      <textarea id="msg" placeholder="Escreva o texto que vai ser postado em cada grupo..."></textarea>
+
+      <div class="row" style="margin-top:10px">
+        <div>
+          <label>Delay mínimo (s)</label>
+          <input id="minDelay" type="number" value="60" min="10">
+        </div>
+        <div>
+          <label>Delay máximo (s)</label>
+          <input id="maxDelay" type="number" value="180" min="10">
+        </div>
+      </div>
+
+      <div class="progress" style="margin-top:12px"><div id="postBar" style="width:0%"></div></div>
+      <div style="font-size:12px;color:var(--muted);margin-top:6px" id="postInfo">—</div>
+
+      <div style="margin-top:14px;display:flex;gap:10px">
+        <button id="btnPost">Postar nos selecionados</button>
+        <button class="ghost" onclick="document.getElementById('msg').value=''">Limpar texto</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:20px">
+      <h2>Eventos</h2>
+      <div class="events" id="events"></div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<script>
+let STATE = {groups:[], events:[], join:{}, post:{}, recheck:{}, phase:'idle', phase_msg:''};
+let SELECTED = new Set();
+
+async function api(path, body){
+  const opt = body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : {};
+  const r = await fetch(path, opt);
+  return r.json();
+}
+
+function pct(c,t){ return t ? Math.min(100, (c/t)*100) : 0; }
+
+function statusBadge(g){
+  const m = {member:['b-member','Membro'], pending:['b-pending','Pendente'],
+             not_joined:['b-not','Não entrou'], unknown:['b-not','?'], error:['b-error','Erro']};
+  const [cls, lbl] = m[g.status] || m.unknown;
+  return `<span class="badge ${cls}">${lbl}</span>`;
+}
+
+function lastPostBadge(g){
+  if (!g.lastPost) return '<span class="badge b-not">—</span>';
+  if (g.lastPost.ok) return '<span class="badge b-member">OK</span>';
+  return `<span class="badge b-error" title="${g.lastPost.step||g.lastPost.error||''}">falha</span>`;
+}
+
+function renderTable(){
+  const tb = document.getElementById('tbody');
+  const rows = STATE.groups.map(g => {
+    const checked = SELECTED.has(g.url) ? 'checked' : '';
+    return `<tr>
+      <td><input type="checkbox" data-url="${g.url}" ${checked} onchange="toggleSel(this)"></td>
+      <td class="name" title="${g.name||''}">${g.name||'(sem nome)'}</td>
+      <td>${g.membros||'—'}</td>
+      <td>${statusBadge(g)}</td>
+      <td>${lastPostBadge(g)}</td>
+      <td><a class="link" href="${g.url}" target="_blank">abrir ↗</a></td>
+    </tr>`;
+  }).join('');
+  tb.innerHTML = rows || '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px">Nenhum grupo ainda. Rode o passo 1.</td></tr>';
+
+  const counts = {total:STATE.groups.length, member:0, pending:0, error:0};
+  STATE.groups.forEach(g => {
+    if (g.status in counts) counts[g.status]++;
+  });
+  document.getElementById('sTotal').textContent = counts.total;
+  document.getElementById('sMember').textContent = counts.member;
+  document.getElementById('sPending').textContent = counts.pending;
+  document.getElementById('sError').textContent = counts.error;
+  document.getElementById('selCount').textContent = SELECTED.size + ' selecionado(s)';
+}
+
+function toggleSel(cb){
+  if (cb.checked) SELECTED.add(cb.dataset.url);
+  else SELECTED.delete(cb.dataset.url);
+  document.getElementById('selCount').textContent = SELECTED.size + ' selecionado(s)';
+}
+
+function selectBy(kind){
+  SELECTED.clear();
+  if (kind === 'all') STATE.groups.forEach(g => SELECTED.add(g.url));
+  else if (kind === 'member') STATE.groups.filter(g => g.status === 'member').forEach(g => SELECTED.add(g.url));
+  renderTable();
+}
+
+function renderEvents(){
+  const el = document.getElementById('events');
+  el.innerHTML = STATE.events.slice(-80).reverse().map(e =>
+    `<div><span class="ts">${e.ts}</span>${e.msg.replace(/</g,'&lt;')}</div>`).join('');
+}
+
+function renderPhase(){
+  const dot = document.getElementById('phaseDot');
+  const msg = document.getElementById('phaseMsg');
+  dot.className = 'dot ' + (STATE.phase !== 'idle' ? 'busy' : '');
+  msg.textContent = STATE.phase_msg || STATE.phase;
+}
+
+function renderProgress(){
+  const j = STATE.join||{};
+  document.getElementById('joinBar').style.width = pct(j.clicked||0, j.limit||1) + '%';
+  if (j.running) document.getElementById('joinInfo').textContent = `${j.clicked||0}/${j.limit||0} grupos (query: "${j.query||''}")`;
+  else if (j.clicked) document.getElementById('joinInfo').textContent = `último: ${j.clicked} clicados`;
+
+  const p = STATE.post||{};
+  document.getElementById('postBar').style.width = pct(p.current||0, p.total||1) + '%';
+  if (p.running) document.getElementById('postInfo').textContent = `postando ${p.current}/${p.total} — ${p.active_name||''}  (OK:${p.ok} FAIL:${p.fail})`;
+  else if (p.current) document.getElementById('postInfo').textContent = `último: ${p.ok} OK, ${p.fail} falhas de ${p.total}`;
+
+  document.getElementById('btnJoin').disabled = !!j.running;
+  document.getElementById('btnPost').disabled = !!p.running;
+}
+
+async function poll(){
+  try{
+    STATE = await api('/api/state');
+    renderTable();
+    renderEvents();
+    renderPhase();
+    renderProgress();
+  }catch(e){}
+  setTimeout(poll, 1500);
+}
+
+document.getElementById('btnJoin').onclick = async () => {
+  const body = {
+    query: document.getElementById('query').value.trim(),
+    limit: parseInt(document.getElementById('limit').value, 10),
+    scrolls: parseInt(document.getElementById('scrolls').value, 10),
+    clear: document.getElementById('clearBefore').checked,
+  };
+  if (!body.query) { alert('digite a palavra-chave'); return; }
+  const r = await api('/api/join', body);
+  if (r.error) alert(r.error);
+};
+
+document.getElementById('btnPost').onclick = async () => {
+  const msg = document.getElementById('msg').value.trim();
+  if (!msg) { alert('escreva a mensagem'); return; }
+  if (SELECTED.size === 0) { alert('selecione ao menos 1 grupo'); return; }
+  const pendingSel = Array.from(SELECTED).filter(u => {
+    const g = STATE.groups.find(x=>x.url===u);
+    return g && g.status !== 'member';
+  });
+  let confirmMsg = `Postar em ${SELECTED.size} grupo(s)?`;
+  if (pendingSel.length) confirmMsg += `\n\nATENÇÃO: ${pendingSel.length} está(ão) pendente(s)/sem status — esses posts provavelmente vão falhar.`;
+  if (!confirm(confirmMsg)) return;
+  const r = await api('/api/post', {
+    message: msg,
+    urls: Array.from(SELECTED),
+    min_delay: parseInt(document.getElementById('minDelay').value, 10),
+    max_delay: parseInt(document.getElementById('maxDelay').value, 10),
+  });
+  if (r.error) alert(r.error);
+};
+
+async function recheck(){
+  if (!confirm('Isso vai visitar cada grupo pra recalcular o status. Pode demorar. Continuar?')) return;
+  const r = await api('/api/recheck', {});
+  if (r.error) alert(r.error);
+}
+
+poll();
+</script>
+</body>
+</html>
