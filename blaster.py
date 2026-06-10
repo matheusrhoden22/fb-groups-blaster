@@ -98,10 +98,21 @@ def ensure_browser():
     if not (active and debug_port_alive(port)):
         print("[*] Iniciando perfil 16 no AdsPower...")
         data = start_profile(USER_ID)
-        time.sleep(5)
         port = data.get("debug_port")
+        if not port:
+            ws = (data.get("ws", {}) or {}).get("puppeteer", "")
+            if ws:
+                port = ws.split(":")[2].split("/")[0]
+        # o navegador do AdsPower pode demorar pra subir — espera ate 45s
+        deadline = time.time() + 45
+        while time.time() < deadline and not debug_port_alive(port):
+            time.sleep(2)
+            if not port:
+                _, d2 = is_profile_active(USER_ID)
+                port = d2.get("debug_port")
     if not debug_port_alive(port):
         raise RuntimeError(f"Porta de debug {port} nao esta acessivel.")
+    print(f"[*] Perfil 16 no ar (porta {port}).")
     return port
 
 
@@ -331,9 +342,11 @@ POST_JS = r"""
   const dialog = document.querySelector('div[role="dialog"]');
   const scope = dialog || document;
   const candidates = Array.from(scope.querySelectorAll('div[role="button"],button'));
+  const POST_RE = /^(Publicar|Postar|Post)$/i;
   for (const c of candidates) {
-    const t = (c.innerText || c.getAttribute('aria-label') || '').trim();
-    if (/^(Publicar|Post)$/i.test(t)) {
+    const txt = (c.innerText||'').trim();
+    const lbl = (c.getAttribute('aria-label')||'').trim();
+    if (POST_RE.test(txt) || POST_RE.test(lbl)) {
       const dis = c.getAttribute('aria-disabled') === 'true' || c.disabled;
       if (!dis) { postBtn = c; break; }
     }
