@@ -75,10 +75,21 @@ def upsert_groups(new_items):
 # ---------- aba worker (reutilizada pra nao abrir 50 abas) ----------
 def get_or_create_worker_tab(port, initial_url="about:blank"):
     tabs = list_tabs(port)
+    pages = [t for t in tabs if t.get("type") == "page"]
+
+    # 1) se ja conhecemos a worker, reutiliza
     if WORKER_TAB["id"]:
-        for t in tabs:
-            if t.get("id") == WORKER_TAB["id"] and t.get("type") == "page":
+        for t in pages:
+            if t.get("id") == WORKER_TAB["id"]:
                 return t
+
+    # 2) adota uma aba de facebook.com ja aberta (evita abrir nova no reboot do server)
+    for t in pages:
+        if "facebook.com" in t.get("url", ""):
+            WORKER_TAB["id"] = t["id"]
+            return t
+
+    # 3) so se nao tiver nenhuma, abre uma aba nova
     resp = open_tab(port, initial_url)
     time.sleep(3)
     tabs = list_tabs(port)
@@ -88,12 +99,32 @@ def get_or_create_worker_tab(port, initial_url="about:blank"):
             if t.get("id") == new_id:
                 WORKER_TAB["id"] = new_id
                 return t
-    # fallback: aba mais recente
     pages = [t for t in tabs if t.get("type") == "page"]
     if pages:
         WORKER_TAB["id"] = pages[0]["id"]
         return pages[0]
     raise RuntimeError("Sem aba de trabalho disponivel")
+
+
+def close_extra_fb_tabs(port):
+    """Fecha todas as abas do Facebook que nao sejam a worker. Retorna quantas fechou."""
+    closed = 0
+    for t in list_tabs(port):
+        if t.get("type") != "page":
+            continue
+        if "facebook.com" not in t.get("url", ""):
+            continue
+        tid = t.get("id")
+        if not tid or tid == WORKER_TAB["id"]:
+            continue
+        try:
+            urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/json/close/{tid}", timeout=5
+            ).read()
+            closed += 1
+        except Exception:
+            pass
+    return closed
 
 
 def navigate_worker(port, url):
@@ -284,9 +315,12 @@ POST_JS = r"""
   const dialog = document.querySelector('div[role="dialog"]');
   const scope = dialog || document;
   let postBtn = null;
+  const POST_RE = /^(Publicar|Postar|Post)$/i;
   for (const c of scope.querySelectorAll('div[role="button"],button')) {
-    const t = ((c.innerText||'') + ' ' + (c.getAttribute('aria-label')||'')).trim();
-    if (/^(Publicar|Post)$/i.test(t) && c.getAttribute('aria-disabled') !== 'true') {
+    const txt = (c.innerText||'').trim();
+    const lbl = (c.getAttribute('aria-label')||'').trim();
+    const ok = POST_RE.test(txt) || POST_RE.test(lbl);
+    if (ok && c.getAttribute('aria-disabled') !== 'true' && !c.disabled) {
       postBtn = c; break;
     }
   }
@@ -302,6 +336,68 @@ POST_JS = r"""
   return { ok: false, step: 'dialog_did_not_close' };
 })()
 """
+
+
+WHOAMI_JS = r"""
+(async () => {
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  for (let i = 0; i < 30; i++) {
+    if (document.querySelector('div[role="navigation"],a[href*="profile.php"]')) break;
+    await sleep(400);
+  }
+  await sleep(1200);
+
+  const out = { name: null, id: null, profileUrl: null, restricted: false, warning: null };
+
+  // nome/id via link de perfil
+  const pLink = document.querySelector('a[href*="/profile.php?id="],div[role="navigation"] a[role="link"] img');
+  if (pLink) {
+    const href = pLink.href || pLink.closest('a') && pLink.closest('a').href;
+    if (href) {
+      out.profileUrl = href;
+      const m = href.match(/id=(\d+)/);
+      if (m) out.id = m[1];
+    }
+  }
+
+  // nome pelo placeholder "No que voce esta pensando, NOME?"
+  const body = (document.body.innerText || '');
+  const nameMatch = body.match(/No que voc[eê] est[aá] pensando,\s*([^?\n]+)\?/i)
+                 || body.match(/What(?:'|')s on your mind,\s*([^?\n]+)\?/i);
+  if (nameMatch) out.name = nameMatch[1].trim();
+
+  // fallback: alt da imagem de perfil no header
+  if (!out.name) {
+    const img = document.querySelector('div[role="banner"] img[alt],header img[alt]');
+    if (img && img.alt) out.name = img.alt;
+  }
+
+  // detecta restricao/analise
+  if (/conta.*(desativada|desabilitada|sob an[aá]lise|apresentou um recurso)/i.test(body)
+   || /account.*(disabled|under review|you submitted an appeal)/i.test(body)) {
+    out.restricted = true;
+    out.warning = 'conta sob analise ou restrita';
+  }
+
+  return out;
+})()
+"""
+
+
+def detect_fb_account():
+    """Abre facebook.com na aba worker e extrai nome/id da conta logada."""
+    port = ensure_browser()
+    navigate_worker(port, "https://www.facebook.com/")
+    time.sleep(4)
+    tab = get_or_create_worker_tab(port)
+    ws = websocket.create_connection(tab["webSocketDebuggerUrl"], timeout=60, suppress_origin=True)
+    try:
+        cdp_send(ws, "Page.enable")
+        cdp_send(ws, "Runtime.enable")
+        result = eval_js_async(ws, WHOAMI_JS, timeout=30)
+    finally:
+        ws.close()
+    return result or {}
 
 
 def eval_js_async(ws, expr, timeout=120):
@@ -566,6 +662,13 @@ class Handler(BaseHTTPRequestHandler):
             with STATE_LOCK:
                 self._send_json(200, STATE)
             return
+        if self.path == "/api/whoami":
+            try:
+                info = detect_fb_account()
+                self._send_json(200, info)
+            except Exception as e:
+                self._send_json(500, {"error": str(e)})
+            return
         self.send_error(404)
 
     def do_POST(self):
@@ -609,6 +712,18 @@ class Handler(BaseHTTPRequestHandler):
                 return
             threading.Thread(target=job_recheck, daemon=True).start()
             self._send_json(200, {"ok": True})
+            return
+
+        if self.path == "/api/close-tabs":
+            try:
+                port = ensure_browser()
+                # se a worker nao existe ainda, adota qualquer facebook tab antes de fechar
+                get_or_create_worker_tab(port, "https://www.facebook.com/")
+                n = close_extra_fb_tabs(port)
+                log_event(f"[TABS] {n} aba(s) do Facebook fechada(s)")
+                self._send_json(200, {"ok": True, "closed": n})
+            except Exception as e:
+                self._send_json(500, {"error": str(e)})
             return
 
         if self.path == "/api/clear-log":
